@@ -3,17 +3,21 @@ import { BigNumber, hexUtils } from '@0x/utils';
 import * as _ from 'lodash';
 
 import { ETH_TOKEN_ADDRESS } from '../../src/constants';
-import { encodePayTakerTransformerData } from '../../src/transformer_data_encoders';
+import { encodeAffiliateFeeTransformerData } from '../../src/transformer_data_encoders';
 import { artifacts } from '../artifacts';
-import { PayTakerTransformerContract, TestMintableERC20TokenContract, TestTransformerHostContract } from '../wrappers';
+import {
+    AffiliateFeeTransformerContract,
+    TestMintableERC20TokenContract,
+    TestTransformerHostContract,
+} from '../wrappers';
 
 const { MAX_UINT256, ZERO_AMOUNT } = constants;
 
-blockchainTests.resets('PayTakerTransformer', env => {
-    const taker = randomAddress();
+blockchainTests.resets('AffiliateFeeTransformer', env => {
+    const recipients = new Array(2).fill(0).map(() => randomAddress());
     let caller: string;
     let token: TestMintableERC20TokenContract;
-    let transformer: PayTakerTransformerContract;
+    let transformer: AffiliateFeeTransformerContract;
     let host: TestTransformerHostContract;
 
     before(async () => {
@@ -24,8 +28,8 @@ blockchainTests.resets('PayTakerTransformer', env => {
             env.txDefaults,
             artifacts,
         );
-        transformer = await PayTakerTransformerContract.deployFrom0xArtifactAsync(
-            artifacts.PayTakerTransformer,
+        transformer = await AffiliateFeeTransformerContract.deployFrom0xArtifactAsync(
+            artifacts.AffiliateFeeTransformer,
             env.provider,
             env.txDefaults,
             artifacts,
@@ -71,77 +75,83 @@ blockchainTests.resets('PayTakerTransformer', env => {
     }
 
     it('can transfer a token and ETH', async () => {
-        const amounts = _.times(2, () => getRandomInteger(1, '1e18'));
-        const data = encodePayTakerTransformerData({
-            amounts,
-            tokens: [token.address, ETH_TOKEN_ADDRESS],
+        const amounts = recipients.map(() => getRandomInteger(1, '1e18'));
+        const tokens = [token.address, ETH_TOKEN_ADDRESS];
+        const data = encodeAffiliateFeeTransformerData({
+            fees: recipients.map((r, i) => ({
+                token: tokens[i],
+                amount: amounts[i],
+                recipient: r,
+            })),
         });
         await mintHostTokensAsync(amounts[0]);
         await sendEtherAsync(host.address, amounts[1]);
         await host
-            .rawExecuteTransform(transformer.address, hexUtils.random(), taker, data)
+            .rawExecuteTransform(transformer.address, hexUtils.random(), randomAddress(), data)
             .awaitTransactionSuccessAsync();
         expect(await getBalancesAsync(host.address)).to.deep.eq(ZERO_BALANCES);
-        expect(await getBalancesAsync(taker)).to.deep.eq({
+        expect(await getBalancesAsync(recipients[0])).to.deep.eq({
             tokenBalance: amounts[0],
+            ethBalance: ZERO_AMOUNT,
+        });
+        expect(await getBalancesAsync(recipients[1])).to.deep.eq({
+            tokenBalance: ZERO_AMOUNT,
             ethBalance: amounts[1],
         });
     });
 
     it('can transfer all of a token and ETH', async () => {
-        const amounts = _.times(2, () => getRandomInteger(1, '1e18'));
-        const data = encodePayTakerTransformerData({
-            amounts: [MAX_UINT256, MAX_UINT256],
-            tokens: [token.address, ETH_TOKEN_ADDRESS],
+        const amounts = recipients.map(() => getRandomInteger(1, '1e18'));
+        const tokens = [token.address, ETH_TOKEN_ADDRESS];
+        const data = encodeAffiliateFeeTransformerData({
+            fees: recipients.map((r, i) => ({
+                token: tokens[i],
+                amount: MAX_UINT256,
+                recipient: r,
+            })),
         });
         await mintHostTokensAsync(amounts[0]);
         await sendEtherAsync(host.address, amounts[1]);
         await host
-            .rawExecuteTransform(transformer.address, hexUtils.random(), taker, data)
+            .rawExecuteTransform(transformer.address, hexUtils.random(), randomAddress(), data)
             .awaitTransactionSuccessAsync();
         expect(await getBalancesAsync(host.address)).to.deep.eq(ZERO_BALANCES);
-        expect(await getBalancesAsync(taker)).to.deep.eq({
+        expect(await getBalancesAsync(recipients[0])).to.deep.eq({
             tokenBalance: amounts[0],
-            ethBalance: amounts[1],
+            ethBalance: ZERO_AMOUNT,
         });
-    });
-
-    it('can transfer all of a token and ETH (empty amounts)', async () => {
-        const amounts = _.times(2, () => getRandomInteger(1, '1e18'));
-        const data = encodePayTakerTransformerData({
-            amounts: [],
-            tokens: [token.address, ETH_TOKEN_ADDRESS],
-        });
-        await mintHostTokensAsync(amounts[0]);
-        await sendEtherAsync(host.address, amounts[1]);
-        await host
-            .rawExecuteTransform(transformer.address, hexUtils.random(), taker, data)
-            .awaitTransactionSuccessAsync();
-        expect(await getBalancesAsync(host.address)).to.deep.eq(ZERO_BALANCES);
-        expect(await getBalancesAsync(taker)).to.deep.eq({
-            tokenBalance: amounts[0],
+        expect(await getBalancesAsync(recipients[1])).to.deep.eq({
+            tokenBalance: ZERO_AMOUNT,
             ethBalance: amounts[1],
         });
     });
 
     it('can transfer less than the balance of a token and ETH', async () => {
-        const amounts = _.times(2, () => getRandomInteger(1, '1e18'));
-        const data = encodePayTakerTransformerData({
-            amounts: amounts.map(a => a.dividedToIntegerBy(2)),
-            tokens: [token.address, ETH_TOKEN_ADDRESS],
+        const amounts = recipients.map(() => getRandomInteger(1, '1e18'));
+        const tokens = [token.address, ETH_TOKEN_ADDRESS];
+        const data = encodeAffiliateFeeTransformerData({
+            fees: recipients.map((r, i) => ({
+                token: tokens[i],
+                amount: amounts[i].minus(1),
+                recipient: r,
+            })),
         });
         await mintHostTokensAsync(amounts[0]);
         await sendEtherAsync(host.address, amounts[1]);
         await host
-            .rawExecuteTransform(transformer.address, hexUtils.random(), taker, data)
+            .rawExecuteTransform(transformer.address, hexUtils.random(), randomAddress(), data)
             .awaitTransactionSuccessAsync();
         expect(await getBalancesAsync(host.address)).to.deep.eq({
-            tokenBalance: amounts[0].minus(amounts[0].dividedToIntegerBy(2)),
-            ethBalance: amounts[1].minus(amounts[1].dividedToIntegerBy(2)),
+            tokenBalance: new BigNumber(1),
+            ethBalance: new BigNumber(1),
         });
-        expect(await getBalancesAsync(taker)).to.deep.eq({
-            tokenBalance: amounts[0].dividedToIntegerBy(2),
-            ethBalance: amounts[1].dividedToIntegerBy(2),
+        expect(await getBalancesAsync(recipients[0])).to.deep.eq({
+            tokenBalance: amounts[0].minus(1),
+            ethBalance: ZERO_AMOUNT,
+        });
+        expect(await getBalancesAsync(recipients[1])).to.deep.eq({
+            tokenBalance: ZERO_AMOUNT,
+            ethBalance: amounts[1].minus(1),
         });
     });
 });

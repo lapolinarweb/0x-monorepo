@@ -19,19 +19,34 @@
 pragma solidity ^0.6.5;
 pragma experimental ABIEncoderV2;
 
-import "../src/features/TransformERC20.sol";
+import "../src/transformers/LibERC20Transformer.sol";
 
 
-contract TestTransformERC20 is
-    TransformERC20
-{
-    // solhint-disable no-empty-blocks
-    constructor()
-        TransformERC20()
-        public
-    {}
+contract TestTransformerDeployerTransformer {
 
-    modifier onlySelf() override {
+    address payable public immutable deployer;
+
+    constructor() public payable {
+        deployer = msg.sender;
+    }
+
+    modifier onlyDeployer() {
+        require(msg.sender == deployer, "TestTransformerDeployerTransformer/ONLY_DEPLOYER");
         _;
+    }
+
+    function die()
+        external
+        onlyDeployer
+    {
+        selfdestruct(deployer);
+    }
+
+    function isDeployedByDeployer(uint32 nonce)
+        external
+        view
+        returns (bool)
+    {
+        return LibERC20Transformer.getDeployedAddress(deployer, nonce) == address(this);
     }
 }

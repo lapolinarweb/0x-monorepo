@@ -28,8 +28,8 @@ import "./Transformer.sol";
 import "./LibERC20Transformer.sol";
 
 
-/// @dev A transformer that transfers tokens to the taker.
-contract PayTakerTransformer is
+/// @dev A transformer that transfers tokens to arbitrary addresses.
+contract AffiliateFeeTransformer is
     Transformer
 {
     // solhint-disable no-empty-blocks
@@ -37,16 +37,18 @@ contract PayTakerTransformer is
     using LibSafeMathV06 for uint256;
     using LibERC20Transformer for IERC20TokenV06;
 
-    /// @dev Transform data to ABI-encode and pass into `transform()`.
-    struct TransformData {
-        // The tokens to transfer to the taker.
-        IERC20TokenV06[] tokens;
-        // Amount of each token in `tokens` to transfer to the taker.
-        // `uint(-1)` will transfer the entire balance.
-        uint256[] amounts;
+    /// @dev Information for a single fee.
+    struct TokenFee {
+        // The token to transfer to `recipient`.
+        IERC20TokenV06 token;
+        // Amount of each `token` to transfer to `recipient`.
+        // If `amount == uint256(-1)`, the entire balance of `token` will be
+        // transferred.
+        uint256 amount;
+        // Recipient of `token`.
+        address payable recipient;
     }
 
-    /// @dev Maximum uint256 value.
     uint256 private constant MAX_UINT256 = uint256(-1);
 
     /// @dev Create this contract.
@@ -55,33 +57,31 @@ contract PayTakerTransformer is
         Transformer()
     {}
 
-    /// @dev Forwards tokens to the taker.
-    /// @param taker The taker address (caller of `TransformERC20.transformERC20()`).
-    /// @param data_ ABI-encoded `TransformData`, indicating which tokens to transfer.
+    /// @dev Transfers tokens to recipients.
+    /// @param data ABI-encoded `TokenFee[]`, indicating which tokens to transfer.
     /// @return success The success bytes (`LibERC20Transformer.TRANSFORMER_SUCCESS`).
     function transform(
         bytes32, // callDataHash,
-        address payable taker,
-        bytes calldata data_
+        address payable, // taker,
+        bytes calldata data
     )
         external
         override
         returns (bytes4 success)
     {
-        TransformData memory data = abi.decode(data_, (TransformData));
+        TokenFee[] memory fees = abi.decode(data, (TokenFee[]));
 
-        // Transfer tokens directly to the taker.
-        for (uint256 i = 0; i < data.tokens.length; ++i) {
-            // The `amounts` array can be shorter than the `tokens` array.
-            // Missing elements are treated as `uint256(-1)`.
-            uint256 amount = data.amounts.length > i ? data.amounts[i] : uint256(-1);
+        // Transfer tokens to recipients.
+        for (uint256 i = 0; i < fees.length; ++i) {
+            uint256 amount = fees[i].amount;
             if (amount == MAX_UINT256) {
-                amount = data.tokens[i].getTokenBalanceOf(address(this));
+                amount = LibERC20Transformer.getTokenBalanceOf(fees[i].token, address(this));
             }
             if (amount != 0) {
-                data.tokens[i].transformerTransfer(taker, amount);
+                fees[i].token.transformerTransfer(fees[i].recipient, amount);
             }
         }
+
         return LibERC20Transformer.TRANSFORMER_SUCCESS;
     }
 }
